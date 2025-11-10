@@ -9,22 +9,30 @@
   body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;margin:1rem;background:var(--bg);color:var(--fg)}
   h2{margin:.2rem 0 .4rem 0;font-size:1.2rem}
   .sub{color:var(--muted);font-size:.85rem;margin-bottom:1rem}
+
+  /* Kalender */
   .cal{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}
   .dow{font-weight:600;font-size:.9rem;color:var(--muted);text-align:center;margin-bottom:.3rem}
-  .cell{background:#fff;border:1px solid var(--border);border-radius:10px;min-height:78px;padding:.5rem;display:flex;flex-direction:column;gap:.35rem}
+  .cell{background:#fff;border:1px solid var(--border);border-radius:10px;min-height:86px;padding:.5rem;display:flex;flex-direction:column;gap:.35rem}
   .cell.out{opacity:.45}
   .day{font-size:.9rem;font-weight:600}
-  .bars{display:flex;flex-direction:column;gap:4px}
-  .bar{height:6px;border-radius:6px}
-  .bar.split{display:grid;grid-template-columns:1fr 1fr;gap:4px;height:6px}
+  .icons{display:flex;flex-wrap:wrap;gap:6px}
+  .icon{width:22px;height:22px;display:inline-block}
   .today{outline:2px solid #111827;outline-offset:2px}
-  .blink{animation:blink 1s infinite alternate}
+  .blink svg{animation:blink 1s infinite alternate}
   @keyframes blink{0%{opacity:1}100%{opacity:.35}}
+
+  /* Legende */
   .legend{margin-top:12px;display:flex;flex-wrap:wrap;gap:10px;font-size:.85rem;color:var(--muted)}
   .dot{width:10px;height:10px;border-radius:2px;display:inline-block;margin-right:6px;vertical-align:middle}
+
+  /* Nächste Abholung – Kartenstil wie in static */
   .list{margin-top:16px}
-  .item{display:flex;align-items:center;gap:12px;margin:.4rem 0;padding:.55rem;border:1px solid var(--border);border-radius:10px;background:#fff}
-  .label{font-weight:600}
+  .card{display:flex;align-items:center;gap:12px;margin:.4rem 0;padding:.65rem;border:1px solid var(--border);border-radius:10px;background:#fff}
+  .card.heute{border:2px solid #111827}
+  .card .date{font-size:.85rem;color:var(--muted)}
+  .badge{font-size:.7rem;color:#fff;background:#0ea5e9;padding:.1rem .45rem;border-radius:999px;margin-left:.35rem}
+
   .muted{color:var(--muted);font-size:.85rem}
 </style>
 </head>
@@ -45,7 +53,7 @@
 <script>
 const ICS_PATH = "./awb.ics"; // gleiche Origin
 
-// Farben + Anzeigenamen
+// Farben + Anzeigenamen + Synonyme
 const COLORS={Restmüll:"#111827",Biotonne:"#92400e",Wertstofftonne:"#ca8a04",Papiertonne:"#1e40af",Weihnachtsbaum:"#065f46",Sperrmüll:"#7c3aed"};
 const LABELS={
   Restmüll:{main:"Schwarze Tonne",sub:"Restmüll"},
@@ -56,6 +64,15 @@ const LABELS={
   Sperrmüll:{main:"Sperrmüll",sub:"Sonderabfuhr"}
 };
 const ORDER=["Restmüll","Biotonne","Wertstofftonne","Papiertonne","Sperrmüll","Weihnachtsbaum"];
+
+function binSVG(color){
+  return `
+    <svg width="22" height="22" viewBox="0 0 28 28" aria-hidden="true">
+      <rect x="7" y="9" width="14" height="14" rx="3" fill="${color}" />
+      <rect x="6" y="7" width="16" height="3" rx="1.5" fill="${color}" />
+      <rect x="10.5" y="5" width="7" height="2" rx="1" fill="${color}" />
+    </svg>`;
+}
 
 function setSubtitle(monthDate){
   const fmt = new Intl.DateTimeFormat("de-DE",{month:"long",year:"numeric"}).format(monthDate);
@@ -85,7 +102,7 @@ function parseEvents(text){
   events.sort((a,b)=>a.dt-b.dt);
   return events;
 }
-// Klassifizierung
+// Klassifizierung (robust für Restmüll)
 function classify(summary){
   const s=summary.toLowerCase();
   if (s.includes("weihnachtsbaum")) return "Weihnachtsbaum";
@@ -102,6 +119,7 @@ function classify(summary){
   ) return "Restmüll";
   return "Restmüll";
 }
+
 function ymd(d){ return d.toISOString().slice(0,10); }
 function fmtDate(d){ return d.toLocaleDateString("de-DE",{weekday:"short",day:"2-digit",month:"2-digit",year:"numeric"}); }
 function mondayIndex(d){ return (d.getDay()+6)%7; }
@@ -134,33 +152,38 @@ function buildCalendar(grouped, month, startGrid, endGrid){
     const cell=document.createElement("div");
     const outMonth = d.getMonth() !== month.getMonth();
     cell.className = "cell"+(outMonth?" out":"")+(d.toDateString()===today.toDateString()?" today":"");
-    const day = document.createElement("div"); day.className="day"; day.textContent = d.getDate();
-    const bars = document.createElement("div"); bars.className="bars";
 
+    const day = document.createElement("div");
+    day.className="day";
+    day.textContent = d.getDate();
+
+    const iconsWrap = document.createElement("div");
+    iconsWrap.className = "icons";
+
+    // bis zu 4 Tonnen als Symbole; bei >4: +x anzeigen
     const ordered = ORDER.filter(t=>types.includes(t));
-    if(ordered.length===1){
-      const t=ordered[0];
-      const bar=document.createElement("div");
-      bar.className="bar"; bar.style.background=COLORS[t];
-      if (d.toDateString()===today.toDateString() || d.toDateString()===tomorrow.toDateString()) bar.classList.add("blink");
-      bars.appendChild(bar);
-    }else if(ordered.length>=2){
-      const t1=ordered[0], t2=ordered[1];
-      const wrap=document.createElement("div"); wrap.className="bar split";
-      wrap.innerHTML=`<div style='background:${COLORS[t1]}'></div><div style='background:${COLORS[t2]}'></div>`;
-      if (d.toDateString()===today.toDateString() || d.toDateString()===tomorrow.toDateString()) wrap.classList.add("blink");
-      bars.appendChild(wrap);
-      if(ordered.length>2){
-        const more=document.createElement("div"); more.className="muted"; more.textContent="+ "+(ordered.length-2)+" weitere";
-        bars.appendChild(more);
-      }
+    const show = ordered.slice(0,4);
+    show.forEach(t=>{
+      const div=document.createElement("div");
+      const blink = (d.toDateString()===today.toDateString() || d.toDateString()===tomorrow.toDateString()) ? " blink" : "";
+      div.className = "icon"+blink;
+      div.title = LABELS[t].main+" · "+LABELS[t].sub;
+      div.innerHTML = binSVG(COLORS[t]);
+      iconsWrap.appendChild(div);
+    });
+    if (ordered.length>4){
+      const more=document.createElement("div");
+      more.className="muted";
+      more.textContent = "+ "+(ordered.length-4);
+      iconsWrap.appendChild(more);
     }
 
     cell.appendChild(day);
-    cell.appendChild(bars);
+    cell.appendChild(iconsWrap);
     grid.appendChild(cell);
   }
 }
+
 function buildLegend(){
   const el=document.getElementById("legend"); el.innerHTML="";
   ORDER.forEach(key=>{
@@ -168,15 +191,20 @@ function buildLegend(){
     el.innerHTML += `<span><span class="dot" style="background:${COLORS[key]}"></span>${lab.main} · ${lab.sub}</span>`;
   });
 }
+
 async function run(){
   buildHeader();
   buildLegend();
   const res = await fetch(ICS_PATH+"?t="+Date.now(), {cache:"no-store"});
+  if(!res.ok){ document.getElementById("grid").innerHTML='<div class="muted">Fehler beim Laden</div>'; return; }
   const txt = await res.text();
+  if(!txt || txt.length<200){ document.getElementById("grid").innerHTML='<div class="muted">Leere/ungültige ICS.</div>'; return; }
+
   const all = parseEvents(txt);
   const now=new Date();
   const {month,startGrid,endGrid}=calcGridRange(now);
 
+  // alle Events innerhalb des sichtbaren Rasters sammeln
   const grouped=new Map();
   for(const ev of all){
     if(ev.dt<startGrid||ev.dt>endGrid)continue;
@@ -187,6 +215,7 @@ async function run(){
   }
   buildCalendar(grouped,month,startGrid,endGrid);
 
+  // "Nächste Abholung" (3 Termine) mit Karten & Blinken (wie static)
   const today=new Date(new Date().toDateString());
   const future=new Map();
   for(const ev of all){
@@ -201,11 +230,24 @@ async function run(){
   if(upcomingDates.length===0){
     upcomingEl.innerHTML='<div class="muted">Keine kommenden Termine.</div>';
   }else{
+    const tomorrow=new Date(today); tomorrow.setDate(today.getDate()+1);
     upcomingEl.innerHTML=upcomingDates.map(k=>{
       const d=new Date(k);
       const types=ORDER.filter(t=>(future.get(k)||[]).includes(t));
-      const labels=types.map(t=>`${LABELS[t].main} · ${LABELS[t].sub}`).join(" | ");
-      return `<div class="item"><div class="label">${fmtDate(d)}</div><div class="muted">${labels}</div></div>`;
+      const isToday=d.toDateString()===today.toDateString();
+      const isTomorrow=d.toDateString()===tomorrow.toDateString();
+      const cards = types.map(t=>{
+        const blinkClass=(isToday||isTomorrow)?' blink':'';
+        return `
+          <div class="card ${isToday?'heute':''}">
+            <div class="${blinkClass}">${binSVG(COLORS[t])}</div>
+            <div>
+              <div><strong>${LABELS[t].main}</strong> <span class="muted">· ${LABELS[t].sub}</span></div>
+              <div class="date">${fmtDate(d)}${isTomorrow?' (morgen)':''}${isToday?' (heute)':''}</div>
+            </div>
+          </div>`;
+      }).join("");
+      return cards;
     }).join("");
   }
 }
