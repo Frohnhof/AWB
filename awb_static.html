@@ -1,61 +1,64 @@
 <!DOCTYPE html>
 <html lang="de">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>AWB Köln – Abfuhrtermine Frohnhof</title>
 <style>
-  :root{ --bg:#f9fafb; --fg:#111827; --muted:#6b7280; --border:#e5e7eb; }
+  :root{--bg:#f9fafb;--fg:#111827;--muted:#6b7280;--border:#e5e7eb}
   body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;margin:1rem;background:var(--bg);color:var(--fg)}
   h2{margin:.2rem 0 1rem 0;font-size:1.1rem}
-  .card{display:flex;align-items:center;gap:10px;margin:.5rem 0;padding:.65rem;border:1px solid var(--border);border-radius:10px;background:#fff}
-  .tonne{width:22px;height:22px;border-radius:6px}
-  .date{font-size:.8rem;color:var(--muted)}
+  .card{display:flex;align-items:center;gap:12px;margin:.5rem 0;padding:.65rem;border:1px solid var(--border);border-radius:10px;background:#fff}
+  .date{font-size:.85rem;color:var(--muted)}
   .heute{border:2px solid #111827}
-  .error{color:#991b1b;background:#fef2f2;border:1px solid #fecaca;padding:.6rem;border-radius:8px}
+  .badge{font-size:.7rem;color:#fff;background:#0ea5e9;padding:.1rem .45rem;border-radius:999px;margin-left:.35rem}
   .small{font-size:.75rem;color:var(--muted);margin-top:.4rem}
+  .error{color:#991b1b;background:#fef2f2;border:1px solid #fecaca;padding:.6rem;border-radius:8px}
 </style>
 </head>
 <body>
 <h2>Abfuhrtermine Frohnhof (AWB Köln)</h2>
 <div id="status" class="small">Lade Termine …</div>
-<div id="awb"></div>
-<div class="small">Stand: <span id="stand">–</span> • Quelle: lokale Kopie awb.ics</div>
+<div id="list"></div>
+<div class="small">Quelle: lokale Kopie <code>awb.ics</code> • Stand: <span id="stand">–</span></div>
 
 <script>
-const ICS_PATH = "./awb.ics"; // gleiche Origin => kein CORS
+const ICS_PATH = "./awb.ics"; // gleiche Origin -> kein CORS
 
+// Farben + Anzeigenamen
 const COLORS={Restmüll:"#111827",Biotonne:"#92400e",Wertstofftonne:"#ca8a04",Papiertonne:"#1e40af",Weihnachtsbaum:"#065f46",Sperrmüll:"#7c3aed"};
 const TITLES={Restmüll:"Schwarze Tonne",Biotonne:"Braune Tonne",Wertstofftonne:"Gelbe Tonne",Papiertonne:"Blaue Tonne",Weihnachtsbaum:"Weihnachtsbaum",Sperrmüll:"Sperrmüll"};
 
-function setStand(){ document.getElementById("stand").textContent = new Date().toLocaleString("de-DE",{dateStyle:"short", timeStyle:"short"}); }
+// kleine Tonne als Inline-SVG (Deckel + Korpus)
+function binSVG(color){
+  return `
+    <svg width="28" height="28" viewBox="0 0 28 28" aria-hidden="true">
+      <rect x="7" y="9" width="14" height="14" rx="3" fill="${color}" />
+      <rect x="6" y="7" width="16" height="3" rx="1.5" fill="${color}" />
+      <rect x="10.5" y="5" width="7" height="2" rx="1" fill="${color}" />
+    </svg>`;
+}
+
+function setStand(){document.getElementById("stand").textContent=new Date().toLocaleString("de-DE",{dateStyle:"short",timeStyle:"short"})}
+
 function unfoldICS(text){
-  const lines = text.replace(/\r/g,"").split("\n");
-  const out = [];
-  for(const line of lines){
-    if(line.startsWith(" ") || line.startsWith("\t")) out[out.length-1] += line.slice(1);
-    else out.push(line);
-  }
+  const lines=text.replace(/\r/g,"").split("\n"); const out=[];
+  for(const l of lines){ if(l.startsWith(" ")||l.startsWith("\t")) out[out.length-1]+=l.slice(1); else out.push(l); }
   return out;
 }
 function parseEvents(text){
-  const lines = unfoldICS(text);
-  const events=[]; let cur=null;
+  const lines=unfoldICS(text); const events=[]; let cur=null;
   for(const L0 of lines){
     const L=L0.trim();
-    if(L==="BEGIN:VEVENT"){ cur={}; continue; }
-    if(L==="END:VEVENT"){ if(cur && cur.dt && cur.summary) events.push(cur); cur=null; continue; }
+    if(L==="BEGIN:VEVENT"){cur={};continue;}
+    if(L==="END:VEVENT"){ if(cur&&cur.dt&&cur.summary) events.push(cur); cur=null; continue;}
     if(!cur) continue;
     if(L.startsWith("DTSTART")){
       const m=L.match(/DTSTART(?:;[^:]+)?:([0-9]{8}(?:T[0-9]{6}Z?)?)/i);
-      if(m){
-        const v=m[1], y=v.slice(0,4), mo=v.slice(4,6), d=v.slice(6,8);
-        let hh="06", mm="00", ss="00";
-        if(v.length>=15 && v.includes("T")){ hh=v.slice(9,11); mm=v.slice(11,13); ss=v.slice(13,15); }
-        cur.dt=new Date(`${y}-${mo}-${d}T${hh}:${mm}:${ss}`);
-      }
-    }else if(L.startsWith("SUMMARY")){
-      cur.summary = L.split(":").slice(1).join(":").trim();
+      if(m){ const v=m[1], y=v.slice(0,4), mo=v.slice(4,6), d=v.slice(6,8);
+        cur.dt=new Date(`${y}-${mo}-${d}T06:00:00`); }
+    } else if(L.startsWith("SUMMARY")){
+      cur.summary=L.split(":").slice(1).join(":").trim();
     }
   }
   events.sort((a,b)=>a.dt-b.dt);
@@ -71,40 +74,48 @@ function classify(summary){
   if(s.includes("rest")) return "Restmüll";
   return "Restmüll";
 }
-function fmt(d){ return d.toLocaleDateString("de-DE",{weekday:"short",day:"2-digit",month:"2-digit"}); }
+function fmt(d){ // inkl. Jahr
+  return d.toLocaleDateString("de-DE",{weekday:"short",day:"2-digit",month:"2-digit",year:"2-digit"});
+}
 
 async function run(){
   const status=document.getElementById("status");
-  const list=document.getElementById("awb");
+  const list=document.getElementById("list");
   try{
-    const res = await fetch(ICS_PATH + "?t=" + Date.now(), {cache:"no-store"});
+    const res=await fetch(ICS_PATH+"?t="+Date.now(),{cache:"no-store"});
     if(!res.ok) throw new Error("HTTP "+res.status);
-    const text = await res.text();
-    const all = parseEvents(text);
-    const today = new Date(new Date().toDateString());
-    const tomorrow = new Date(today); tomorrow.setDate(today.getDate()+1);
-    const upcoming = all.filter(e=>e.dt>=today).slice(0,8);
-    list.innerHTML="";
+    const txt=await res.text();
+    if(!txt || txt.length<200){ throw new Error("Datei leer/ungültig"); }
+
+    const all=parseEvents(txt);
+    const today=new Date(new Date().toDateString());
+    const tomorrow=new Date(today); tomorrow.setDate(today.getDate()+1);
+    const upcoming=all.filter(e=>e.dt>=today).slice(0,10);
+
     if(!upcoming.length){
-      list.innerHTML='<div class="error">Keine kommenden Termine gefunden (awb.ics leer/alt?).</div>';
+      list.innerHTML='<div class="error">Keine kommenden Termine gefunden.</div>';
       status.textContent="Hinweis"; setStand(); return;
     }
-    for(const ev of upcoming){
+
+    list.innerHTML = upcoming.map(ev=>{
       const type=classify(ev.summary);
       const title=TITLES[type]||type;
       const color=COLORS[type]||"#111827";
       const isToday=ev.dt.toDateString()===today.toDateString();
       const isTomorrow=ev.dt.toDateString()===tomorrow.toDateString();
-      const div=document.createElement('div');
-      div.className='card'+(isToday?' heute':'');
-      div.innerHTML=`<div class="tonne" style="background:${color}"></div>
-                     <div><div><strong>${title}</strong>${(type==='Weihnachtsbaum'||type==='Sperrmüll')?'<span style="font-size:.7rem;color:#fff;background:#0ea5e9;padding:.1rem .4rem;border-radius:999px;margin-left:.35rem;">Sonderabfuhr</span>':''}</div>
-                     <div class="date">${fmt(ev.dt)}${isTomorrow?' (morgen)':''}</div></div>`;
-      list.appendChild(div);
-    }
+      return `
+        <div class="card ${isToday?'heute':''}">
+          <div>${binSVG(color)}</div>
+          <div>
+            <div><strong>${title}</strong>${(type==='Weihnachtsbaum'||type==='Sperrmüll')?'<span class="badge">Sonderabfuhr</span>':''}</div>
+            <div class="date">${fmt(ev.dt)}${isTomorrow?' (morgen)':''}</div>
+          </div>
+        </div>`;
+    }).join("");
+
     status.textContent="aktuell"; setStand();
   }catch(e){
-    list.innerHTML = '<div class="error">Fehler: '+(e && e.message?e.message:e)+'</div>';
+    document.getElementById("list").innerHTML='<div class="error">Fehler: '+(e.message||e)+'</div>';
     status.textContent="Fehler"; setStand();
   }
 }
