@@ -42,6 +42,7 @@ const LABELS={
 const COLORS={Restmüll:"#111827",Biotonne:"#92400e",Wertstofftonne:"#ca8a04",Papiertonne:"#1e40af",Weihnachtsbaum:"#065f46",Sperrmüll:"#7c3aed"};
 const ORDER=["Restmüll","Biotonne","Wertstofftonne","Papiertonne","Sperrmüll","Weihnachtsbaum"];
 
+// Icon
 function binSVG(color){
   return `
     <svg width="24" height="24" viewBox="0 0 28 28" aria-hidden="true">
@@ -79,22 +80,35 @@ function parseEvents(text){
   return events;
 }
 
-// robuste Klassifizierung (inkl. Restmüll-Synonyme)
-function classify(summary){
+/* NEU: mehrere Tonnen aus einem SUMMARY erkennen.
+   Greift auf Begriffe UND Farbsynonyme (grau, braun, gelb, blau) zu. */
+function detectTypes(summary){
   const s=summary.toLowerCase();
-  if (s.includes("weihnachtsbaum")) return "Weihnachtsbaum";
-  if (s.includes("sperrm")) return "Sperrmüll";
-  if (s.includes("wertstoff") || s.includes("gelbe tonne") || s.includes("gelben sack") || s.includes("lvp")) return "Wertstofftonne";
-  if (s.includes("papier") || s.includes("blaue tonne") || s.includes("altpapier")) return "Papiertonne";
-  if (s.includes("bio") || s.includes("biotonne") || s.includes("bioabfall") || s.includes("grünabfall") || s.includes("gruenabfall")) return "Biotonne";
-  if (
-    s.includes("restmüll") || s.includes("restmuell") ||
-    s.includes("restabfall") || s.includes("hausmüll") || s.includes("hausmuell") ||
-    s.includes("grau") || s.includes("graue tonne") || s.includes("grauen tonne") ||
-    s.includes("schwarz") || s.includes("schwarze tonne") || s.includes("schwarzen tonne") ||
-    s.includes("rest-")
-  ) return "Restmüll";
-  return "Restmüll";
+  const found=new Set();
+
+  // Restmüll (inkl. Farbsynonym "grau", generische "rest-" usw.)
+  if (s.match(/\brestm(ü|u)ll\b/) || s.includes("restabfall") || s.includes("hausm") || s.includes("grau") || s.includes("schwarz") || s.includes("schwarze tonne") || s.includes("rest-"))
+    found.add("Restmüll");
+
+  // Bio (inkl. "braun")
+  if (s.includes("bioton") || s.includes("bioabfall") || s.includes("grünabfall") || s.includes("gruenabfall") || s.includes(" bio") || s.includes("(braun") || s.includes(" braun"))
+    found.add("Biotonne");
+
+  // Wertstoff (inkl. "gelb")
+  if (s.includes("wertstoff") || s.includes("gelbe tonne") || s.includes("gelben sack") || s.includes(" lvp") || s.includes(" gelb"))
+    found.add("Wertstofftonne");
+
+  // Papier (inkl. "blau")
+  if (s.includes("papier") || s.includes("altpapier") || s.includes("blaue tonne") || s.includes(" blau"))
+    found.add("Papiertonne");
+
+  // Sonderabfuhren
+  if (s.includes("weihnachtsbaum")) found.add("Weihnachtsbaum");
+  if (s.includes("sperrm")) found.add("Sperrmüll");
+
+  // Fallback: wenn nichts erkannt, lieber Restmüll anzeigen
+  if (found.size===0) found.add("Restmüll");
+  return Array.from(found);
 }
 
 function ymd(d){ return d.toISOString().slice(0,10); }
@@ -118,9 +132,9 @@ async function run(){
     for(const ev of all){
       if(ev.dt < today) continue;
       const k=ymd(ev.dt);
-      const type=classify(ev.summary);
+      const types = detectTypes(ev.summary); // <<< Mehrfach-Erkennung
       if(!groups.has(k)) groups.set(k, new Set());
-      groups.get(k).add(type);
+      types.forEach(t => groups.get(k).add(t));
     }
     const nextKeys = Array.from(groups.keys()).sort().slice(0,14);
 
