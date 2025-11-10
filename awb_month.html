@@ -50,7 +50,7 @@
 <div class="muted" style="margin-top:8px">Quelle: lokale Kopie <code>awb.ics</code></div>
 
 <script>
-const ICS_PATH = "./awb.ics";
+const ICS_PATH = "./awb.ics"; // ICS-Datei im selben Verzeichnis
 
 const LABELS={
   Restmüll:{top:"Schwarze Tonne", sub:"Restmüll"},
@@ -72,7 +72,203 @@ function binSVG(color){
     </svg>`;
 }
 
-// (Restlicher Code bleibt identisch)
+function setSubtitle(monthDate){
+  const fmt = new Intl.DateTimeFormat("de-DE",{month:"long",year:"numeric"}).format(monthDate);
+  document.getElementById("subtitle").textContent = fmt;
+}
+function unfoldICS(text){
+  const lines=text.replace(/\r/g,"").split("\n"); const out=[];
+  for(const l of lines){ if(l.startsWith(" ")||l.startsWith("\t")) out[out.length-1]+=l.slice(1); else out.push(l); }
+  return out;
+}
+function parseEvents(text){
+  const lines=unfoldICS(text); const events=[]; let cur=null;
+  for(const L0 of lines){
+    const L=L0.trim();
+    if(L==="BEGIN:VEVENT"){cur={};continue;}
+    if(L==="END:VEVENT"){ if(cur&&cur.dt&&cur.summary) events.push(cur); cur=null; continue;}
+    if(!cur) continue;
+    if(L.startsWith("DTSTART")){
+      const m=L.match(/DTSTART(?:;[^:]+)?:([0-9]{8})(?:T[0-9]{6}Z?)?/i);
+      if(m){ const v=m[1], y=v.slice(0,4), mo=v.slice(4,6), d=v.slice(6,8);
+        cur.dt=new Date(`${y}-${mo}-${d}T06:00:00`);
+      }
+    } else if(L.startsWith("SUMMARY")){
+      cur.summary=L.split(":").slice(1).join(":").trim();
+    }
+  }
+  events.sort((a,b)=>a.dt-b.dt);
+  return events;
+}
+
+function detectTypes(summary){
+  const s = " "+summary.toLowerCase().replace(/\s+/g," ")+" ";
+  const found = new Set();
+  const has = (re)=>re.test(s);
+
+  if (has(/\brestm(ü|u)ll\b/) || has(/\brestabfall\b/) || has(/\bhausm(ü|u)ll\b/) ||
+      has(/\bgrau(e|en)?\b/) || has(/\bschwarz(e|en)?\b/) || has(/\bschwarze tonne\b/) || has(/\brest-/))
+    found.add("Restmüll");
+
+  if (has(/\bbioton(ne|na|ne)?\b/) || has(/\bbioabfall\b/) || has(/\bgr(ü|u)nabfall\b/) ||
+      has(/\b(braun|braune)\b/) || has(/\(braun\)/))
+    found.add("Biotonne");
+
+  if (has(/\bwertstoff\b/) ||
+      has(/\bgelb(e|en)?\s+(tonne|sack)\b/) ||
+      has(/\b(tonne|sack)\s+gelb(e|en)?\b/) ||
+      has(/\(gelb\)/))
+    found.add("Wertstofftonne");
+
+  if (has(/\baltpapier\b/) || has(/\bpapier\b/) ||
+      has(/\bblau(e|en)?\s+tonne\b/) || has(/\btonne\s+blau(e|en)?\b/) ||
+      has(/\(blau\)/))
+    found.add("Papiertonne");
+
+  if (has(/\bweihnachtsbaum\b/)) found.add("Weihnachtsbaum");
+  if (has(/\bsperrm(ü|u)ll\b/)) found.add("Sperrmüll");
+
+  if (found.size===0) found.add("Restmüll");
+  return Array.from(found);
+}
+
+function ymd(d){ return d.toISOString().slice(0,10); }
+function fmtDate(d){ return d.toLocaleDateString("de-DE",{weekday:"short",day:"2-digit",month:"2-digit",year:"numeric"}); }
+function mondayIndex(d){ return (d.getDay()+6)%7; }
+
+function buildHeader(){
+  const header=document.getElementById("header"); header.innerHTML="";
+  ["Mo","Di","Mi","Do","Fr","Sa","So"].forEach(txt=>{
+    const div=document.createElement("div"); div.className="dow"; div.textContent=txt; header.appendChild(div);
+  });
+}
+function calcGridRange(now){
+  const month=new Date(now.getFullYear(), now.getMonth(), 1);
+  const startOffset = mondayIndex(month);
+  const startGrid = new Date(month); startGrid.setDate(1 - startOffset);
+  const endOfMonth = new Date(now.getFullYear(), now.getMonth()+1, 0);
+  const endOffset = (6 - mondayIndex(endOfMonth));
+  const endGrid = new Date(endOfMonth); endGrid.setDate(endOfMonth.getDate() + endOffset);
+  return {month, startGrid, endGrid};
+}
+
+function buildCalendar(grouped, month, startGrid, endGrid){
+  const grid=document.getElementById("grid"); grid.innerHTML="";
+  setSubtitle(month);
+  const today=new Date(new Date().toDateString());
+  const tomorrow=new Date(today); tomorrow.setDate(today.getDate()+1);
+
+  for(let d=new Date(startGrid); d<=endGrid; d.setDate(d.getDate()+1)){
+    const k=ymd(d);
+    const types = grouped.get(k) || [];
+    const cell=document.createElement("div");
+    const outMonth = d.getMonth() !== month.getMonth();
+    cell.className = "cell"+(outMonth?" out":"")+(d.toDateString()===today.toDateString()?" today":"");
+
+    const day = document.createElement("div");
+    day.className="day";
+    day.textContent = d.getDate();
+
+    const iconsWrap = document.createElement("div");
+    iconsWrap.className = "icons";
+
+    const ordered = ORDER.filter(t=>types.includes(t));
+    ordered.forEach(t=>{
+      const div=document.createElement("div");
+      const blink = (d.toDateString()===today.toDateString() || d.toDateString()===tomorrow.toDateString()) ? " blink" : "";
+      div.className = "icon"+blink;
+      div.title = (LABELS[t]?.top||t)+" · "+(LABELS[t]?.sub||"");
+      div.innerHTML = binSVG(COLORS[t]||"#111827");
+      iconsWrap.appendChild(div);
+    });
+
+    cell.appendChild(day);
+    cell.appendChild(iconsWrap);
+    grid.appendChild(cell);
+  }
+}
+
+function buildLegend(){
+  const el=document.getElementById("legend"); el.innerHTML="";
+  ORDER.forEach(key=>{
+    const lab=LABELS[key];
+    el.innerHTML += `<span><span class="dot" style="background:${COLORS[key]}"></span>${lab.top} · ${lab.sub}</span>`;
+  });
+}
+
+function renderUpcoming(all){
+  const today=new Date(new Date().toDateString());
+  const tomorrow=new Date(today); tomorrow.setDate(today.getDate()+1);
+
+  const future = new Map();
+  for(const ev of all){
+    if (ev.dt < today) continue;
+    const k=ymd(ev.dt);
+    const types = detectTypes(ev.summary);
+    if(!future.has(k)) future.set(k, new Set());
+    types.forEach(t=>future.get(k).add(t));
+  }
+  const upcomingEl=document.getElementById("upcoming");
+  const nextDates = Array.from(future.keys()).sort().slice(0,3);
+
+  if(nextDates.length===0){
+    upcomingEl.innerHTML = '<div class="muted">Keine kommenden Termine.</div>';
+    return;
+  }
+
+  upcomingEl.innerHTML = nextDates.map(k=>{
+    const d=new Date(k);
+    const isToday=d.toDateString()===today.toDateString();
+    const isTomorrow=d.toDateString()===tomorrow.toDateString();
+    const types = ORDER.filter(t => future.get(k).has(t));
+
+    const icons = types.map(t=>{
+      const blinkClass=(isToday||isTomorrow)?' blink':'';
+      return `<div class="${blinkClass}">${binSVG(COLORS[t])}</div>`;
+    }).join("");
+
+    const labels = types.map(t=>{
+      const lab = LABELS[t]||{top:t,sub:""};
+      return `<div class="stack"><span class="label">${lab.top}</span><span class="subline">${lab.sub}</span></div>`;
+    }).join(' &nbsp; ');
+
+    return `
+      <div class="card ${isToday?'heute':''}">
+        <div style="display:flex;gap:10px;align-items:center">${icons}</div>
+        <div>
+          <div class="date">${fmtDate(d)}${isTomorrow?' (morgen)':''}${isToday?' (heute)':''}</div>
+          <div style="margin-top:4px">${labels}</div>
+        </div>
+      </div>`;
+  }).join("");
+}
+
+async function run(){
+  buildHeader();
+  buildLegend();
+
+  const res = await fetch(ICS_PATH+"?t="+Date.now(), {cache:"no-store"});
+  if(!res.ok){ document.getElementById("grid").innerHTML='<div class="muted">Fehler beim Laden</div>'; return; }
+  const txt = await res.text();
+  if(!txt || txt.length<200){ document.getElementById("grid").innerHTML='<div class="muted">Leere/ungültige ICS.</div>'; return; }
+
+  const all = parseEvents(txt);
+  const now=new Date();
+  const {month,startGrid,endGrid}=calcGridRange(now);
+
+  const grouped=new Map();
+  for(const ev of all){
+    if(ev.dt<startGrid||ev.dt>endGrid) continue;
+    const k=ymd(ev.dt);
+    const types = detectTypes(ev.summary);
+    if(!grouped.has(k)) grouped.set(k, []);
+    for(const t of types){ if(!grouped.get(k).includes(t)) grouped.get(k).push(t); }
+  }
+
+  buildCalendar(grouped,month,startGrid,endGrid);
+  renderUpcoming(all);
+}
+run();
 </script>
 </body>
 </html>
