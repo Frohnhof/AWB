@@ -8,15 +8,18 @@
   :root{--bg:#f9fafb;--fg:#111827;--muted:#6b7280;--border:#e5e7eb}
   body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;margin:1rem;background:var(--bg);color:var(--fg)}
   h2{margin:.2rem 0 1rem 0;font-size:1.1rem}
-  .card{display:flex;align-items:center;gap:12px;margin:.5rem 0;padding:.65rem;border:1px solid var(--border);border-radius:10px;background:#fff}
-  .date{font-size:.85rem;color:var(--muted)}
-  .heute{border:2px solid #111827}
+  .row{display:grid;grid-template-columns: 170px 1fr;gap:12px;
+       padding:.65rem;border:1px solid var(--border);border-radius:10px;background:#fff;margin:.5rem 0}
+  .row.heute{border:2px solid #111827}
+  .date{font-size:.9rem;color:var(--muted);line-height:1.2}
+  .bins{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
+  .cell{display:flex;align-items:center;gap:10px;padding:.5rem;border:1px solid var(--border);border-radius:8px}
+  .label{font-weight:600}
+  .sub{font-size:.8rem;color:var(--muted)}
   .blink svg{animation:blink 1s infinite alternate}
-  @keyframes blink{0%{opacity:1}100%{opacity:.3}}
-  .badge{font-size:.7rem;color:#fff;background:#0ea5e9;padding:.1rem .45rem;border-radius:999px;margin-left:.35rem}
+  @keyframes blink{0%{opacity:1}100%{opacity:.35}}
   .small{font-size:.75rem;color:var(--muted);margin-top:.4rem}
   .error{color:#991b1b;background:#fef2f2;border:1px solid #fecaca;padding:.6rem;border-radius:8px}
-  .dbg{font-size:.72rem;color:#6b7280;margin-top:.25rem}
 </style>
 </head>
 <body>
@@ -27,13 +30,19 @@
 
 <script>
 const ICS_PATH = "./awb.ics"; // gleiche Origin -> kein CORS
-const DEBUG = false; // bei Bedarf auf true setzen: zeigt zugeordneten Typ + Original-SUMMARY
+const DEBUG = false;
 
-// Farben + Anzeigenamen
+// Farben + Anzeigenamen + Synonyme
 const COLORS={Restmüll:"#111827",Biotonne:"#92400e",Wertstofftonne:"#ca8a04",Papiertonne:"#1e40af",Weihnachtsbaum:"#065f46",Sperrmüll:"#7c3aed"};
-const TITLES={Restmüll:"Schwarze Tonne",Biotonne:"Braune Tonne",Wertstofftonne:"Gelbe Tonne",Papiertonne:"Blaue Tonne",Weihnachtsbaum:"Weihnachtsbaum",Sperrmüll:"Sperrmüll"};
-
-// kleine Tonne als Inline-SVG
+const LABELS={
+  Restmüll:{main:"Schwarze Tonne",sub:"Restmüll"},
+  Biotonne:{main:"Braune Tonne",sub:"Biotonne"},
+  Wertstofftonne:{main:"Gelbe Tonne",sub:"Wertstofftonne"},
+  Papiertonne:{main:"Blaue Tonne",sub:"Papier"},
+  Weihnachtsbaum:{main:"Weihnachtsbaum",sub:"Sonderabfuhr"},
+  Sperrmüll:{main:"Sperrmüll",sub:"Sonderabfuhr"}
+};
+// Render: kleine Mülltonne als Inline-SVG
 function binSVG(color){
   return `
     <svg width="28" height="28" viewBox="0 0 28 28" aria-hidden="true">
@@ -42,9 +51,7 @@ function binSVG(color){
       <rect x="10.5" y="5" width="7" height="2" rx="1" fill="${color}" />
     </svg>`;
 }
-
 function setStand(){document.getElementById("stand").textContent=new Date().toLocaleString("de-DE",{dateStyle:"short",timeStyle:"short"})}
-
 function unfoldICS(text){
   const lines=text.replace(/\r/g,"").split("\n"); const out=[];
   for(const l of lines){ if(l.startsWith(" ")||l.startsWith("\t")) out[out.length-1]+=l.slice(1); else out.push(l); }
@@ -68,12 +75,14 @@ function parseEvents(text){
   events.sort((a,b)=>a.dt-b.dt);
   return events;
 }
-
-// Verbesserte Klassifizierung (Synonyme je AWB-Formulierung)
+// Klassifizierung mit Synonymen
 function classify(summary){
   const s=summary.toLowerCase();
-
-  // Restmüll: viele Synonyme
+  if (s.includes("weihnachtsbaum")) return "Weihnachtsbaum";
+  if (s.includes("sperrm")) return "Sperrmüll";
+  if (s.includes("wertstoff") || s.includes("gelbe tonne") || s.includes("gelben sack") || s.includes("lvp")) return "Wertstofftonne";
+  if (s.includes("papier") || s.includes("blaue tonne") || s.includes("altpapier")) return "Papiertonne";
+  if (s.includes("bio") || s.includes("biotonne") || s.includes("bioabfall") || s.includes("grünabfall") || s.includes("gruenabfall")) return "Biotonne";
   if (
     s.includes("restmüll") || s.includes("restmuell") ||
     s.includes("restabfall") || s.includes("hausmüll") || s.includes("hausmuell") ||
@@ -81,30 +90,13 @@ function classify(summary){
     s.includes("schwarz") || s.includes("schwarze tonne") || s.includes("schwarzen tonne") ||
     s.includes("rest-")
   ) return "Restmüll";
-
-  // Bio
-  if (s.includes("bio") || s.includes("biotonne") || s.includes("bioabfall") || s.includes("grünabfall") || s.includes("gruenabfall"))
-    return "Biotonne";
-
-  // Wertstoff / Gelb
-  if (s.includes("wertstoff") || s.includes("gelbe tonne") || s.includes("gelben sack") || s.includes("lvp"))
-    return "Wertstofftonne";
-
-  // Papier / Blau
-  if (s.includes("papier") || s.includes("blaue tonne") || s.includes("altpapier"))
-    return "Papiertonne";
-
-  // Sonderabfuhren
-  if (s.includes("weihnachtsbaum")) return "Weihnachtsbaum";
-  if (s.includes("sperrm")) return "Sperrmüll";
-
-  // Fallback: lieber als Restmüll anzeigen als gar nichts
   return "Restmüll";
 }
+function fmtDateLong(d){ return d.toLocaleDateString("de-DE",{weekday:"short",day:"2-digit",month:"2-digit",year:"numeric"}); }
+function keyYMD(d){ return d.toISOString().slice(0,10); }
 
-function fmt(d){
-  return d.toLocaleDateString("de-DE",{weekday:"short",day:"2-digit",month:"2-digit",year:"numeric"});
-}
+// Reihenfolge der Spalten
+const ORDER = ["Restmüll","Biotonne","Wertstofftonne","Papiertonne","Sperrmüll","Weihnachtsbaum"];
 
 async function run(){
   const status=document.getElementById("status");
@@ -118,30 +110,57 @@ async function run(){
     const all=parseEvents(txt);
     const today=new Date(new Date().toDateString());
     const tomorrow=new Date(today); tomorrow.setDate(today.getDate()+1);
-    const upcoming=all.filter(e=>e.dt>=today).slice(0,10);
 
-    if(!upcoming.length){
-      list.innerHTML='<div class="error">Keine kommenden Termine gefunden.</div>';
-      status.textContent="Hinweis"; setStand(); return;
+    // Gruppieren nach Datum
+    const groups = {};
+    for(const ev of all){
+      if(ev.dt < today) continue;
+      const type = classify(ev.summary);
+      const k = keyYMD(ev.dt);
+      if(!groups[k]) groups[k] = {date: ev.dt, types: new Set(), raw: []};
+      groups[k].types.add(type);
+      groups[k].raw.push({type, summary: ev.summary});
     }
 
-    list.innerHTML = upcoming.map(ev=>{
-      const type=classify(ev.summary);
-      const title=TITLES[type]||type;
-      const color=COLORS[type]||"#111827";
-      const isToday=ev.dt.toDateString()===today.toDateString();
-      const isTomorrow=ev.dt.toDateString()===tomorrow.toDateString();
-      const blink=(isToday||isTomorrow)?'blink':'';
+    const days = Object.values(groups).sort((a,b)=>a.date-b.date).slice(0,10);
+    if(!days.length){
+      list.innerHTML = '<div class="error">Keine kommenden Termine gefunden.</div>';
+      status.textContent = "Hinweis"; setStand(); return;
+    }
+
+    // Render
+    list.innerHTML = days.map(day=>{
+      const isToday = day.date.toDateString()===today.toDateString();
+      const isTomorrow = day.date.toDateString()===tomorrow.toDateString();
+      // sortiere Typen nach ORDER
+      const types = ORDER.filter(t=>day.types.has(t));
+      const binsHTML = types.map(t=>{
+        const {main,sub} = LABELS[t] || {main:t, sub:""};
+        const color = COLORS[t] || "#111827";
+        const blinkClass = (isToday||isTomorrow) ? "blink" : "";
+        return `
+          <div class="cell">
+            <div class="${blinkClass}">${binSVG(color)}</div>
+            <div>
+              <div class="label">${main}</div>
+              <div class="sub">${sub}</div>
+            </div>
+          </div>`;
+      }).join("");
       return `
-        <div class="card ${isToday?'heute':''}">
-          <div class="${blink}">${binSVG(color)}</div>
-          <div>
-            <div><strong>${title}</strong>${(type==='Weihnachtsbaum'||type==='Sperrmüll')?'<span class="badge">Sonderabfuhr</span>':''}</div>
-            <div class="date">${fmt(ev.dt)}${isTomorrow?' (morgen)':''}${isToday?' (heute)':''}</div>
-            ${DEBUG ? `<div class="dbg">Typ: ${type} • SUMMARY: ${ev.summary}</div>` : ``}
+        <div class="row ${isToday?'heute':''}">
+          <div class="date">
+            ${fmtDateLong(day.date)}${isTomorrow?' (morgen)':''}${isToday?' (heute)':''}
+          </div>
+          <div class="bins">
+            ${binsHTML}
           </div>
         </div>`;
     }).join("");
+
+    if (DEBUG) {
+      console.log("Gruppen", groups);
+    }
 
     status.textContent="aktuell"; setStand();
   }catch(e){
