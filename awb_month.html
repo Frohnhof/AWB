@@ -53,9 +53,9 @@
 <div class="muted" style="margin-top:8px">Quelle: lokale Kopie <code>awb.ics</code></div>
 
 <script>
-const ICS_PATH = "./awb.ics"; // gleiche Origin
+const ICS_PATH = "./awb.ics";
 
-// Anzeigenamen & Untertitel
+/* Labels & Farben */
 const LABELS={
   Restmüll:{top:"Schwarze Tonne", sub:"Restmüll"},
   Biotonne:{top:"Braune Tonne", sub:"Biotonne"},
@@ -95,7 +95,7 @@ function parseEvents(text){
     if(L==="END:VEVENT"){ if(cur&&cur.dt&&cur.summary) events.push(cur); cur=null; continue;}
     if(!cur) continue;
     if(L.startsWith("DTSTART")){
-      const m=L.match(/DTSTART(?:;[^:]+)?:([0-9]{8}(?:T[0-9]{6}Z?)?)/i);
+      const m=L.match(/DTSTART(?:;[^:]+)?:([0-9]{8})(?:T[0-9]{6}Z?)?/i);
       if(m){ const v=m[1], y=v.slice(0,4), mo=v.slice(4,6), d=v.slice(6,8);
         cur.dt=new Date(`${y}-${mo}-${d}T06:00:00`);
       }
@@ -107,32 +107,34 @@ function parseEvents(text){
   return events;
 }
 
-/* Mehrfach-Erkennung pro SUMMARY (inkl. Farbsynonyme) */
+/* Sichere Mehrfach-Erkennung pro SUMMARY mit Wortgrenzen */
 function detectTypes(summary){
-  const s=summary.toLowerCase();
-  const found=new Set();
+  const s = " "+summary.toLowerCase().replace(/\s+/g," ")+" ";
+  const found = new Set();
 
-  // Restmüll (grau/schwarz/hausmüll/rest-)
-  if (s.match(/\brestm(ü|u)ll\b/) || s.includes("restabfall") || s.includes("hausm") ||
-      s.includes("grau") || s.includes("schwarz") || s.includes("schwarze tonne") || s.includes("rest-"))
+  const has = (re)=>re.test(s);
+
+  // Restmüll: Begriffe + Farben
+  if (has(/\brestm(ü|u)ll\b/) || has(/\brestabfall\b/) || has(/\bhausm(ü|u)ll\b/) ||
+      has(/\bgrau(e|en)?\b/) || has(/\bschwarz(e|en)?\b/) || has(/\bschwarze tonne\b/) || has(/\brest-/))
     found.add("Restmüll");
 
-  // Bio (braun/grünabfall)
-  if (s.includes("bioton") || s.includes("bioabfall") || s.includes("grünabfall") || s.includes("gruenabfall") ||
-      s.includes(" bio") || s.includes("(braun") || s.includes(" braun"))
+  // Biotonne
+  if (has(/\bbioton(ne|na|ne)?\b/) || has(/\bbioabfall\b/) || has(/\bgr(ü|u)nabfall\b/) ||
+      has(/\b(braun|braune)\b/) || has(/\(braun\)/))
     found.add("Biotonne");
 
   // Wertstoff (gelb/LVP)
-  if (s.includes("wertstoff") || s.includes("gelbe tonne") || s.includes("gelben sack") || s.includes(" lvp") || s.includes(" gelb"))
+  if (has(/\bwertstoff\b/) || has(/\bgelbe(n)? tonne\b/) || has(/\bgelben sack\b/) || has(/\blvp\b/) || has(/\bgelb(e|en)?\b/))
     found.add("Wertstofftonne");
 
-  // Papier (blau/altpapier)
-  if (s.includes("papier") || s.includes("altpapier") || s.includes("blaue tonne") || s.includes(" blau"))
+  // Papier (blau/Altpapier)
+  if (has(/\bpapier\b/) || has(/\baltpapier\b/) || has(/\bblaue(n)? tonne\b/) || has(/\bblau(e|en)?\b/))
     found.add("Papiertonne");
 
-  // Sonderabfuhren
-  if (s.includes("weihnachtsbaum")) found.add("Weihnachtsbaum");
-  if (s.includes("sperrm")) found.add("Sperrmüll");
+  // Sonder
+  if (has(/\bweihnachtsbaum\b/)) found.add("Weihnachtsbaum");
+  if (has(/\bsperrm(ü|u)ll\b/)) found.add("Sperrmüll");
 
   if (found.size===0) found.add("Restmüll");
   return Array.from(found);
@@ -232,7 +234,6 @@ function renderUpcoming(all){
     const isTomorrow=d.toDateString()===tomorrow.toDateString();
     const types = ORDER.filter(t => future.get(k).has(t));
 
-    // Eine Karte pro Tag, mit allen Tonnen nebeneinander
     const icons = types.map(t=>{
       const blinkClass=(isToday||isTomorrow)?' blink':'';
       return `<div class="${blinkClass}">${binSVG(COLORS[t])}</div>`;
@@ -267,7 +268,7 @@ async function run(){
   const now=new Date();
   const {month,startGrid,endGrid}=calcGridRange(now);
 
-  // Sammle Events im sichtbaren Monatsraster (mehrere Tonnen pro SUMMARY)
+  // Sammle Events im sichtbaren Monatsraster (mehrere Tonnen pro SUMMARY sicher erkennen)
   const grouped=new Map();
   for(const ev of all){
     if(ev.dt<startGrid||ev.dt>endGrid) continue;
