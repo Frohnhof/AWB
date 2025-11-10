@@ -1,7 +1,8 @@
 name: Fetch AWB ICS
+
 on:
   schedule:
-    - cron: "5 4 * * *"
+    - cron: "5 4 * * *"   # Läuft jeden Tag um 04:05 Uhr
   workflow_dispatch: {}
 
 permissions:
@@ -10,21 +11,29 @@ permissions:
 jobs:
   fetch:
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
+
       - name: Fetch ICS
         run: |
+          echo "Lade AWB Köln ICS-Datei herunter..."
           curl -L --fail \
             "https://www.awbkoeln.de/fileadmin/ics/icscal.php?building_number=2&street_code=4587&start_year=2025&end_year=2026&start_month=1&end_month=12&trigger=960&wertstoff=1&grey=1&brown=1&blue=1&red=0&xmastree=1" \
             -o awb.ics
-      - name: Commit if changed
+          echo "Download abgeschlossen: $(ls -lh awb.ics)"
+
+      - name: Commit file (track new or changed)
         run: |
-          if git diff --quiet awb.ics; then
-            echo "Keine Änderungen an awb.ics"
+          set -e
+          echo "Prüfe, ob awb.ics geändert oder neu ist..."
+          git add -A
+          if git diff --cached --quiet; then
+            echo "Keine Änderungen zum Commit."
           else
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add awb.ics
             git commit -m "Update awb.ics $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
             git push
+            echo "Änderungen wurden committed und gepusht."
           fi
