@@ -63,8 +63,8 @@ function setSubtitle(monthDate){
 }
 
 function unfoldICS(text){
-  const lines=text.replace(/\\r/g,"").split("\\n"); const out=[];
-  for(const l of lines){ if(l.startsWith(" ")||l.startsWith("\\t")) out[out.length-1]+=l.slice(1); else out.push(l); }
+  const lines=text.replace(/\r/g,"").split("\n"); const out=[];
+  for(const l of lines){ if(l.startsWith(" ")||l.startsWith("\t")) out[out.length-1]+=l.slice(1); else out.push(l); }
   return out;
 }
 function parseEvents(text){
@@ -85,7 +85,7 @@ function parseEvents(text){
   events.sort((a,b)=>a.dt-b.dt);
   return events;
 }
-// Klassifizierung mit Synonymen
+// Klassifizierung
 function classify(summary){
   const s=summary.toLowerCase();
   if (s.includes("weihnachtsbaum")) return "Weihnachtsbaum";
@@ -104,7 +104,7 @@ function classify(summary){
 }
 function ymd(d){ return d.toISOString().slice(0,10); }
 function fmtDate(d){ return d.toLocaleDateString("de-DE",{weekday:"short",day:"2-digit",month:"2-digit",year:"numeric"}); }
-function mondayIndex(d){ return (d.getDay()+6)%7; } // Mo=0,...So=6
+function mondayIndex(d){ return (d.getDay()+6)%7; }
 
 function buildHeader(){
   const header=document.getElementById("header"); header.innerHTML="";
@@ -112,20 +112,19 @@ function buildHeader(){
     const div=document.createElement("div"); div.className="dow"; div.textContent=txt; header.appendChild(div);
   });
 }
-
-function buildCalendar(grouped){
-  const grid=document.getElementById("grid"); grid.innerHTML="";
-  const now=new Date();
+function calcGridRange(now){
   const month=new Date(now.getFullYear(), now.getMonth(), 1);
-  setSubtitle(month);
-
   const startOffset = mondayIndex(month);
   const startGrid = new Date(month); startGrid.setDate(1 - startOffset);
-
   const endOfMonth = new Date(now.getFullYear(), now.getMonth()+1, 0);
-  const endOffset = (6 - mondayIndex(endOfMonth)); // bis Sonntag auffüllen
+  const endOffset = (6 - mondayIndex(endOfMonth));
   const endGrid = new Date(endOfMonth); endGrid.setDate(endOfMonth.getDate() + endOffset);
+  return {month, startGrid, endGrid};
+}
 
+function buildCalendar(grouped, month, startGrid, endGrid){
+  const grid=document.getElementById("grid"); grid.innerHTML="";
+  setSubtitle(month);
   const today=new Date(new Date().toDateString());
   const tomorrow=new Date(today); tomorrow.setDate(today.getDate()+1);
 
@@ -138,23 +137,20 @@ function buildCalendar(grouped){
     const day = document.createElement("div"); day.className="day"; day.textContent = d.getDate();
     const bars = document.createElement("div"); bars.className="bars";
 
-    // Zeichne Balken
     const ordered = ORDER.filter(t=>types.includes(t));
     if(ordered.length===1){
-      const t=ordered[0]; const bar=document.createElement("div");
-      bar.className="bar"; bar.style.background=COLORS[t]||"#111827";
+      const t=ordered[0];
+      const bar=document.createElement("div");
+      bar.className="bar"; bar.style.background=COLORS[t];
       if (d.toDateString()===today.toDateString() || d.toDateString()===tomorrow.toDateString()) bar.classList.add("blink");
-      bar.title = LABELS[t]?.main+" · "+(LABELS[t]?.sub||"");
       bars.appendChild(bar);
     }else if(ordered.length>=2){
       const t1=ordered[0], t2=ordered[1];
       const wrap=document.createElement("div"); wrap.className="bar split";
-      const a=document.createElement("div"); a.style.background=COLORS[t1]||"#111827"; wrap.appendChild(a);
-      const b=document.createElement("div"); b.style.background=COLORS[t2]||"#111827"; wrap.appendChild(b);
+      wrap.innerHTML=`<div style='background:${COLORS[t1]}'></div><div style='background:${COLORS[t2]}'></div>`;
       if (d.toDateString()===today.toDateString() || d.toDateString()===tomorrow.toDateString()) wrap.classList.add("blink");
-      wrap.title = [t1,t2].map(t=> (LABELS[t]?.main+" · "+(LABELS[t]?.sub||"")) ).join("  |  ");
       bars.appendChild(wrap);
-      if (ordered.length>2){
+      if(ordered.length>2){
         const more=document.createElement("div"); more.className="muted"; more.textContent="+ "+(ordered.length-2)+" weitere";
         bars.appendChild(more);
       }
@@ -165,53 +161,51 @@ function buildCalendar(grouped){
     grid.appendChild(cell);
   }
 }
-
 function buildLegend(){
   const el=document.getElementById("legend"); el.innerHTML="";
   ORDER.forEach(key=>{
     const lab=LABELS[key];
-    const span=document.createElement("span");
-    span.innerHTML = `<span class="dot" style="background:${COLORS[key]}"></span>${lab.main} · ${lab.sub}`;
-    el.appendChild(span);
+    el.innerHTML += `<span><span class="dot" style="background:${COLORS[key]}"></span>${lab.main} · ${lab.sub}</span>`;
   });
 }
-
 async function run(){
   buildHeader();
   buildLegend();
-
   const res = await fetch(ICS_PATH+"?t="+Date.now(), {cache:"no-store"});
-  if(!res.ok){ document.getElementById("grid").innerHTML='<div class="muted">Fehler beim Laden</div>'; return; }
   const txt = await res.text();
   const all = parseEvents(txt);
+  const now=new Date();
+  const {month,startGrid,endGrid}=calcGridRange(now);
 
-  // Gruppieren nach Datum (nur zukünftige/aktuelle)
-  const today=new Date(new Date().toDateString());
-  const grouped = new Map();
+  const grouped=new Map();
   for(const ev of all){
-    if (ev.dt < today) continue;
+    if(ev.dt<startGrid||ev.dt>endGrid)continue;
     const k=ymd(ev.dt);
     const type=classify(ev.summary);
-    if(!grouped.has(k)) grouped.set(k, []);
-    if(!grouped.get(k).includes(type)) grouped.get(k).push(type);
+    if(!grouped.has(k))grouped.set(k,[]);
+    if(!grouped.get(k).includes(type))grouped.get(k).push(type);
   }
+  buildCalendar(grouped,month,startGrid,endGrid);
 
-  buildCalendar(grouped);
-
-  // Upcoming (nächste 3 Termine)
-  const upcomingEl = document.getElementById("upcoming");
-  const upcomingDates = Array.from(grouped.keys()).sort().slice(0,3);
+  const today=new Date(new Date().toDateString());
+  const future=new Map();
+  for(const ev of all){
+    if(ev.dt<today)continue;
+    const k=ymd(ev.dt);
+    const type=classify(ev.summary);
+    if(!future.has(k))future.set(k,[]);
+    if(!future.get(k).includes(type))future.get(k).push(type);
+  }
+  const upcomingEl=document.getElementById("upcoming");
+  const upcomingDates=Array.from(future.keys()).sort().slice(0,3);
   if(upcomingDates.length===0){
-    upcomingEl.innerHTML = '<div class="muted">Keine kommenden Termine.</div>';
+    upcomingEl.innerHTML='<div class="muted">Keine kommenden Termine.</div>';
   }else{
-    upcomingEl.innerHTML = upcomingDates.map(k=>{
+    upcomingEl.innerHTML=upcomingDates.map(k=>{
       const d=new Date(k);
-      const types = ORDER.filter(t=>(grouped.get(k)||[]).includes(t));
-      const labels = types.map(t=>`${LABELS[t].main} · ${LABELS[t].sub}`).join(" | ");
-      return `<div class="item">
-                <div class="label">${fmtDate(d)}</div>
-                <div class="muted">${labels}</div>
-              </div>`;
+      const types=ORDER.filter(t=>(future.get(k)||[]).includes(t));
+      const labels=types.map(t=>`${LABELS[t].main} · ${LABELS[t].sub}`).join(" | ");
+      return `<div class="item"><div class="label">${fmtDate(d)}</div><div class="muted">${labels}</div></div>`;
     }).join("");
   }
 }
