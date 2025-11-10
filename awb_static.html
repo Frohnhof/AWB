@@ -14,9 +14,13 @@
   .muted{color:var(--muted)}
   .small{font-size:.75rem;color:var(--muted);margin-top:.5rem}
   .error{color:#991b1b;background:#fef2f2;border:1px solid #fecaca;padding:.6rem;border-radius:8px}
-  .iconsline{display:flex;flex-wrap:wrap;gap:12px;align-items:center}
-  .item{display:inline-flex;gap:6px;align-items:center}
-  .bin{width:24px;height:24px;display:inline-block;vertical-align:middle}
+
+  .iconsline{display:flex;flex-wrap:wrap;gap:14px;align-items:flex-start}
+  .item{display:inline-flex;gap:8px;align-items:center}
+  .bin{width:24px;height:24px;display:inline-block;vertical-align:middle;flex:0 0 auto}
+  .stack{display:flex;flex-direction:column;line-height:1.15}
+  .label{font-weight:600}
+  .sub{font-size:.8rem;color:var(--muted)}
   .blink svg{animation:blink 1s infinite alternate}
   @keyframes blink{0%{opacity:1}100%{opacity:.35}}
 </style>
@@ -30,19 +34,21 @@
 <script>
 const ICS_PATH = "./awb.ics"; // gleiche Origin
 
-// Anzeige-Texte + Farben
+// Anzeigenamen (oben fett) und Inhalte (klein darunter)
 const LABELS={
-  Restmüll:"Schwarze Tonne",
-  Biotonne:"Braune Tonne",
-  Wertstofftonne:"Gelbe Tonne",
-  Papiertonne:"Blaue Tonne",
-  Weihnachtsbaum:"Weihnachtsbaum",
-  Sperrmüll:"Sperrmüll"
+  Restmüll:{top:"Schwarze Tonne", sub:"Restmüll"},
+  Biotonne:{top:"Braune Tonne", sub:"Biotonne"},
+  Wertstofftonne:{top:"Gelbe Tonne", sub:"Wertstofftonne"},
+  Papiertonne:{top:"Blaue Tonne", sub:"Papier"},
+  Weihnachtsbaum:{top:"Weihnachtsbaum", sub:"Sonderabfuhr"},
+  Sperrmüll:{top:"Sperrmüll", sub:"Sonderabfuhr"}
 };
-const COLORS={Restmüll:"#111827",Biotonne:"#92400e",Wertstofftonne:"#ca8a04",Papiertonne:"#1e40af",Weihnachtsbaum:"#065f46",Sperrmüll:"#7c3aed"};
+const COLORS={
+  Restmüll:"#111827", Biotonne:"#92400e", Wertstofftonne:"#ca8a04",
+  Papiertonne:"#1e40af", Weihnachtsbaum:"#065f46", Sperrmüll:"#7c3aed"
+};
 const ORDER=["Restmüll","Biotonne","Wertstofftonne","Papiertonne","Sperrmüll","Weihnachtsbaum"];
 
-// Icon
 function binSVG(color){
   return `
     <svg width="24" height="24" viewBox="0 0 28 28" aria-hidden="true">
@@ -52,7 +58,9 @@ function binSVG(color){
     </svg>`;
 }
 
-function setStand(){document.getElementById("stand").textContent=new Date().toLocaleString("de-DE",{dateStyle:"short",timeStyle:"short"})}
+function setStand(){
+  document.getElementById("stand").textContent=new Date().toLocaleString("de-DE",{dateStyle:"short",timeStyle:"short"});
+}
 
 function unfoldICS(text){
   const lines=text.replace(/\r/g,"").split("\n"); const out=[];
@@ -69,7 +77,6 @@ function parseEvents(text){
     if(L.startsWith("DTSTART")){
       const m=L.match(/DTSTART(?:;[^:]+)?:([0-9]{8}(?:T[0-9]{6}Z?)?)/i);
       if(m){ const v=m[1], y=v.slice(0,4), mo=v.slice(4,6), d=v.slice(6,8);
-        // feste lokale Zeit verhindert TZ-Shift
         cur.dt=new Date(`${y}-${mo}-${d}T06:00:00`);
       }
     } else if(L.startsWith("SUMMARY")){
@@ -80,25 +87,26 @@ function parseEvents(text){
   return events;
 }
 
-/* NEU: mehrere Tonnen aus einem SUMMARY erkennen.
-   Greift auf Begriffe UND Farbsynonyme (grau, braun, gelb, blau) zu. */
+// Mehrfach-Erkennung pro SUMMARY (inkl. Farbsynonyme)
 function detectTypes(summary){
   const s=summary.toLowerCase();
   const found=new Set();
 
-  // Restmüll (inkl. Farbsynonym "grau", generische "rest-" usw.)
-  if (s.match(/\brestm(ü|u)ll\b/) || s.includes("restabfall") || s.includes("hausm") || s.includes("grau") || s.includes("schwarz") || s.includes("schwarze tonne") || s.includes("rest-"))
+  // Restmüll (grau/schwarz/hausmüll/rest-)
+  if (s.match(/\brestm(ü|u)ll\b/) || s.includes("restabfall") || s.includes("hausm") ||
+      s.includes("grau") || s.includes("schwarz") || s.includes("schwarze tonne") || s.includes("rest-"))
     found.add("Restmüll");
 
-  // Bio (inkl. "braun")
-  if (s.includes("bioton") || s.includes("bioabfall") || s.includes("grünabfall") || s.includes("gruenabfall") || s.includes(" bio") || s.includes("(braun") || s.includes(" braun"))
+  // Biotonne (braun/grünabfall)
+  if (s.includes("bioton") || s.includes("bioabfall") || s.includes("grünabfall") || s.includes("gruenabfall") ||
+      s.includes(" bio") || s.includes("(braun") || s.includes(" braun"))
     found.add("Biotonne");
 
-  // Wertstoff (inkl. "gelb")
+  // Wertstoff (gelb/LVP)
   if (s.includes("wertstoff") || s.includes("gelbe tonne") || s.includes("gelben sack") || s.includes(" lvp") || s.includes(" gelb"))
     found.add("Wertstofftonne");
 
-  // Papier (inkl. "blau")
+  // Papier (blau/altpapier)
   if (s.includes("papier") || s.includes("altpapier") || s.includes("blaue tonne") || s.includes(" blau"))
     found.add("Papiertonne");
 
@@ -106,7 +114,6 @@ function detectTypes(summary){
   if (s.includes("weihnachtsbaum")) found.add("Weihnachtsbaum");
   if (s.includes("sperrm")) found.add("Sperrmüll");
 
-  // Fallback: wenn nichts erkannt, lieber Restmüll anzeigen
   if (found.size===0) found.add("Restmüll");
   return Array.from(found);
 }
@@ -127,34 +134,40 @@ async function run(){
     const today=new Date(new Date().toDateString());
     const tomorrow=new Date(today); tomorrow.setDate(today.getDate()+1);
 
-    // Gruppieren: nächste 14 Kalendertage (inkl. heute)
+    // NUR die nächsten 3 Kalendertage (inkl. heute)
     const groups = new Map();
     for(const ev of all){
       if(ev.dt < today) continue;
       const k=ymd(ev.dt);
-      const types = detectTypes(ev.summary); // <<< Mehrfach-Erkennung
+      const types = detectTypes(ev.summary);
       if(!groups.has(k)) groups.set(k, new Set());
       types.forEach(t => groups.get(k).add(t));
     }
-    const nextKeys = Array.from(groups.keys()).sort().slice(0,14);
+    const nextKeys = Array.from(groups.keys()).sort().slice(0,3);
 
     if(nextKeys.length===0){
-      list.innerHTML='<div class="error">Keine kommenden Termine.</div>';
+      list.innerHTML='<div class="error">Keine kommenden Termine in den nächsten 3 Tagen.</div>';
       status.textContent="Hinweis"; setStand(); return;
     }
 
-    // Render: eine Zeile pro Datum, Icons + Labels „ / “-getrennt
     list.innerHTML = nextKeys.map(k=>{
       const d=new Date(k);
       const isToday=d.toDateString()===today.toDateString();
       const isTomorrow=d.toDateString()===tomorrow.toDateString();
-
       const types = ORDER.filter(t => groups.get(k).has(t));
 
       const parts = types.map(t=>{
         const svg = binSVG(COLORS[t]||"#111827");
         const blinkClass = (isToday || isTomorrow) ? " blink" : "";
-        return `<span class="item"><span class="bin${blinkClass}">${svg}</span><span>${LABELS[t]||t}</span></span>`;
+        const lab = LABELS[t] || {top:t, sub:""};
+        return `
+          <span class="item">
+            <span class="bin${blinkClass}">${svg}</span>
+            <span class="stack">
+              <span class="label">${lab.top}</span>
+              <span class="sub">${lab.sub}</span>
+            </span>
+          </span>`;
       });
 
       const joined = parts.join(' <span class="muted">/</span> ');
