@@ -8,17 +8,11 @@
   :root{--bg:#f9fafb;--fg:#111827;--muted:#6b7280;--border:#e5e7eb}
   body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;margin:1rem;background:var(--bg);color:var(--fg)}
   h2{margin:.2rem 0 1rem 0;font-size:1.1rem}
-  .row{display:grid;grid-template-columns: 170px 1fr;gap:12px;
-       padding:.65rem;border:1px solid var(--border);border-radius:10px;background:#fff;margin:.5rem 0}
+  .row{display:block;margin:.5rem 0;padding:.65rem;border:1px solid var(--border);border-radius:10px;background:#fff}
   .row.heute{border:2px solid #111827}
-  .date{font-size:.9rem;color:var(--muted);line-height:1.2}
-  .bins{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
-  .cell{display:flex;align-items:center;gap:10px;padding:.5rem;border:1px solid var(--border);border-radius:8px}
-  .label{font-weight:600}
-  .sub{font-size:.8rem;color:var(--muted)}
-  .blink svg{animation:blink 1s infinite alternate}
-  @keyframes blink{0%{opacity:1}100%{opacity:.35}}
-  .small{font-size:.75rem;color:var(--muted);margin-top:.4rem}
+  .date{font-weight:600}
+  .muted{color:var(--muted)}
+  .small{font-size:.75rem;color:var(--muted);margin-top:.5rem}
   .error{color:#991b1b;background:#fef2f2;border:1px solid #fecaca;padding:.6rem;border-radius:8px}
 </style>
 </head>
@@ -29,29 +23,21 @@
 <div class="small">Quelle: lokale Kopie <code>awb.ics</code> • Stand: <span id="stand">–</span></div>
 
 <script>
-const ICS_PATH = "./awb.ics"; // gleiche Origin -> kein CORS
-const DEBUG = false;
-
-// Farben + Anzeigenamen + Synonyme
-const COLORS={Restmüll:"#111827",Biotonne:"#92400e",Wertstofftonne:"#ca8a04",Papiertonne:"#1e40af",Weihnachtsbaum:"#065f46",Sperrmüll:"#7c3aed"};
+const ICS_PATH = "./awb.ics"; // gleiche Origin
+// Anzeige-Texte
 const LABELS={
-  Restmüll:{main:"Schwarze Tonne",sub:"Restmüll"},
-  Biotonne:{main:"Braune Tonne",sub:"Biotonne"},
-  Wertstofftonne:{main:"Gelbe Tonne",sub:"Wertstofftonne"},
-  Papiertonne:{main:"Blaue Tonne",sub:"Papier"},
-  Weihnachtsbaum:{main:"Weihnachtsbaum",sub:"Sonderabfuhr"},
-  Sperrmüll:{main:"Sperrmüll",sub:"Sonderabfuhr"}
+  Restmüll:"Schwarze Tonne",
+  Biotonne:"Braune Tonne",
+  Wertstofftonne:"Gelbe Tonne",
+  Papiertonne:"Blaue Tonne",
+  Weihnachtsbaum:"Weihnachtsbaum",
+  Sperrmüll:"Sperrmüll"
 };
-// Render: kleine Mülltonne als Inline-SVG
-function binSVG(color){
-  return `
-    <svg width="28" height="28" viewBox="0 0 28 28" aria-hidden="true">
-      <rect x="7" y="9" width="14" height="14" rx="3" fill="${color}" />
-      <rect x="6" y="7" width="16" height="3" rx="1.5" fill="${color}" />
-      <rect x="10.5" y="5" width="7" height="2" rx="1" fill="${color}" />
-    </svg>`;
-}
+// feste Reihenfolge für kombinierte Ausgabe
+const ORDER=["Restmüll","Biotonne","Wertstofftonne","Papiertonne","Sperrmüll","Weihnachtsbaum"];
+
 function setStand(){document.getElementById("stand").textContent=new Date().toLocaleString("de-DE",{dateStyle:"short",timeStyle:"short"})}
+
 function unfoldICS(text){
   const lines=text.replace(/\r/g,"").split("\n"); const out=[];
   for(const l of lines){ if(l.startsWith(" ")||l.startsWith("\t")) out[out.length-1]+=l.slice(1); else out.push(l); }
@@ -67,7 +53,9 @@ function parseEvents(text){
     if(L.startsWith("DTSTART")){
       const m=L.match(/DTSTART(?:;[^:]+)?:([0-9]{8}(?:T[0-9]{6}Z?)?)/i);
       if(m){ const v=m[1], y=v.slice(0,4), mo=v.slice(4,6), d=v.slice(6,8);
-        cur.dt=new Date(`${y}-${mo}-${d}T06:00:00`); }
+        // Uhrzeit egal -> fixe lokale Zeit, um TZ-Verzerrung zu vermeiden
+        cur.dt=new Date(`${y}-${mo}-${d}T06:00:00`);
+      }
     } else if(L.startsWith("SUMMARY")){
       cur.summary=L.split(":").slice(1).join(":").trim();
     }
@@ -75,7 +63,8 @@ function parseEvents(text){
   events.sort((a,b)=>a.dt-b.dt);
   return events;
 }
-// Klassifizierung mit Synonymen
+
+// robuste Klassifizierung (inkl. Synonyme für Restmüll)
 function classify(summary){
   const s=summary.toLowerCase();
   if (s.includes("weihnachtsbaum")) return "Weihnachtsbaum";
@@ -92,11 +81,9 @@ function classify(summary){
   ) return "Restmüll";
   return "Restmüll";
 }
-function fmtDateLong(d){ return d.toLocaleDateString("de-DE",{weekday:"short",day:"2-digit",month:"2-digit",year:"numeric"}); }
-function keyYMD(d){ return d.toISOString().slice(0,10); }
 
-// Reihenfolge der Spalten
-const ORDER = ["Restmüll","Biotonne","Wertstofftonne","Papiertonne","Sperrmüll","Weihnachtsbaum"];
+function ymd(d){ return d.toISOString().slice(0,10); }
+function fmtDateLong(d){ return d.toLocaleDateString("de-DE",{weekday:"short",day:"2-digit",month:"2-digit",year:"numeric"}); }
 
 async function run(){
   const status=document.getElementById("status");
@@ -109,58 +96,37 @@ async function run(){
 
     const all=parseEvents(txt);
     const today=new Date(new Date().toDateString());
-    const tomorrow=new Date(today); tomorrow.setDate(today.getDate()+1);
-
-    // Gruppieren nach Datum
-    const groups = {};
+    // Gruppieren: nur nächste 3 Kalendertage (inkl. heute)
+    const groups = new Map();
     for(const ev of all){
       if(ev.dt < today) continue;
-      const type = classify(ev.summary);
-      const k = keyYMD(ev.dt);
-      if(!groups[k]) groups[k] = {date: ev.dt, types: new Set(), raw: []};
-      groups[k].types.add(type);
-      groups[k].raw.push({type, summary: ev.summary});
+      const k=ymd(ev.dt);
+      const type=classify(ev.summary);
+      if(!groups.has(k)) groups.set(k, new Set());
+      groups.get(k).add(type);
+    }
+    const nextKeys = Array.from(groups.keys()).sort().slice(0,3);
+
+    if(nextKeys.length===0){
+      list.innerHTML='<div class="error">Keine kommenden Termine in den nächsten 3 Tagen.</div>';
+      status.textContent="Hinweis"; setStand(); return;
     }
 
-    const days = Object.values(groups).sort((a,b)=>a.date-b.date).slice(0,10);
-    if(!days.length){
-      list.innerHTML = '<div class="error">Keine kommenden Termine gefunden.</div>';
-      status.textContent = "Hinweis"; setStand(); return;
-    }
+    const tomorrow=new Date(today); tomorrow.setDate(today.getDate()+1);
 
-    // Render
-    list.innerHTML = days.map(day=>{
-      const isToday = day.date.toDateString()===today.toDateString();
-      const isTomorrow = day.date.toDateString()===tomorrow.toDateString();
-      // sortiere Typen nach ORDER
-      const types = ORDER.filter(t=>day.types.has(t));
-      const binsHTML = types.map(t=>{
-        const {main,sub} = LABELS[t] || {main:t, sub:""};
-        const color = COLORS[t] || "#111827";
-        const blinkClass = (isToday||isTomorrow) ? "blink" : "";
-        return `
-          <div class="cell">
-            <div class="${blinkClass}">${binSVG(color)}</div>
-            <div>
-              <div class="label">${main}</div>
-              <div class="sub">${sub}</div>
-            </div>
-          </div>`;
-      }).join("");
+    // Render: eine Zeile pro Datum, Tonnen zusammengefasst mit „ / “
+    list.innerHTML = nextKeys.map(k=>{
+      const d=new Date(k);
+      const isToday=d.toDateString()===today.toDateString();
+      const isTomorrow=d.toDateString()===tomorrow.toDateString();
+      const types = ORDER.filter(t => groups.get(k).has(t));
+      const title = types.map(t => LABELS[t] || t).join(" / ");
       return `
         <div class="row ${isToday?'heute':''}">
-          <div class="date">
-            ${fmtDateLong(day.date)}${isTomorrow?' (morgen)':''}${isToday?' (heute)':''}
-          </div>
-          <div class="bins">
-            ${binsHTML}
-          </div>
+          <div class="date">${fmtDateLong(d)}${isTomorrow?' (morgen)':''}${isToday?' (heute)':''}</div>
+          <div>${title}</div>
         </div>`;
     }).join("");
-
-    if (DEBUG) {
-      console.log("Gruppen", groups);
-    }
 
     status.textContent="aktuell"; setStand();
   }catch(e){
@@ -168,6 +134,7 @@ async function run(){
     status.textContent="Fehler"; setStand();
   }
 }
+
 run();
 </script>
 </body>
