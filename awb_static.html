@@ -11,6 +11,8 @@
   .card{display:flex;align-items:center;gap:12px;margin:.5rem 0;padding:.65rem;border:1px solid var(--border);border-radius:10px;background:#fff}
   .date{font-size:.85rem;color:var(--muted)}
   .heute{border:2px solid #111827}
+  .blink svg{animation:blink 1s infinite alternate}
+  @keyframes blink{0%{opacity:1}100%{opacity:.3}}
   .badge{font-size:.7rem;color:#fff;background:#0ea5e9;padding:.1rem .45rem;border-radius:999px;margin-left:.35rem}
   .small{font-size:.75rem;color:var(--muted);margin-top:.4rem}
   .error{color:#991b1b;background:#fef2f2;border:1px solid #fecaca;padding:.6rem;border-radius:8px}
@@ -29,7 +31,7 @@ const ICS_PATH = "./awb.ics"; // gleiche Origin -> kein CORS
 const COLORS={Restmüll:"#111827",Biotonne:"#92400e",Wertstofftonne:"#ca8a04",Papiertonne:"#1e40af",Weihnachtsbaum:"#065f46",Sperrmüll:"#7c3aed"};
 const TITLES={Restmüll:"Schwarze Tonne",Biotonne:"Braune Tonne",Wertstofftonne:"Gelbe Tonne",Papiertonne:"Blaue Tonne",Weihnachtsbaum:"Weihnachtsbaum",Sperrmüll:"Sperrmüll"};
 
-// kleine Tonne als Inline-SVG (Deckel + Korpus)
+// kleine Tonne als Inline-SVG
 function binSVG(color){
   return `
     <svg width="28" height="28" viewBox="0 0 28 28" aria-hidden="true">
@@ -74,8 +76,8 @@ function classify(summary){
   if(s.includes("rest")) return "Restmüll";
   return "Restmüll";
 }
-function fmt(d){ // inkl. Jahr
-  return d.toLocaleDateString("de-DE",{weekday:"short",day:"2-digit",month:"2-digit",year:"2-digit"});
+function fmt(d){
+  return d.toLocaleDateString("de-DE",{weekday:"short",day:"2-digit",month:"2-digit",year:"numeric"});
 }
 
 async function run(){
@@ -103,12 +105,13 @@ async function run(){
       const color=COLORS[type]||"#111827";
       const isToday=ev.dt.toDateString()===today.toDateString();
       const isTomorrow=ev.dt.toDateString()===tomorrow.toDateString();
+      const blink=(isToday||isTomorrow)?'blink':'';
       return `
         <div class="card ${isToday?'heute':''}">
-          <div>${binSVG(color)}</div>
+          <div class="${blink}">${binSVG(color)}</div>
           <div>
             <div><strong>${title}</strong>${(type==='Weihnachtsbaum'||type==='Sperrmüll')?'<span class="badge">Sonderabfuhr</span>':''}</div>
-            <div class="date">${fmt(ev.dt)}${isTomorrow?' (morgen)':''}</div>
+            <div class="date">${fmt(ev.dt)}${isTomorrow?' (morgen)':''}${isToday?' (heute)':''}</div>
           </div>
         </div>`;
     }).join("");
