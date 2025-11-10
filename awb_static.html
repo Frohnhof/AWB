@@ -16,6 +16,7 @@
   .badge{font-size:.7rem;color:#fff;background:#0ea5e9;padding:.1rem .45rem;border-radius:999px;margin-left:.35rem}
   .small{font-size:.75rem;color:var(--muted);margin-top:.4rem}
   .error{color:#991b1b;background:#fef2f2;border:1px solid #fecaca;padding:.6rem;border-radius:8px}
+  .dbg{font-size:.72rem;color:#6b7280;margin-top:.25rem}
 </style>
 </head>
 <body>
@@ -26,6 +27,7 @@
 
 <script>
 const ICS_PATH = "./awb.ics"; // gleiche Origin -> kein CORS
+const DEBUG = false; // bei Bedarf auf true setzen: zeigt zugeordneten Typ + Original-SUMMARY
 
 // Farben + Anzeigenamen
 const COLORS={Restmüll:"#111827",Biotonne:"#92400e",Wertstofftonne:"#ca8a04",Papiertonne:"#1e40af",Weihnachtsbaum:"#065f46",Sperrmüll:"#7c3aed"};
@@ -66,16 +68,40 @@ function parseEvents(text){
   events.sort((a,b)=>a.dt-b.dt);
   return events;
 }
+
+// Verbesserte Klassifizierung (Synonyme je AWB-Formulierung)
 function classify(summary){
   const s=summary.toLowerCase();
-  if(s.includes("weihnachtsbaum")) return "Weihnachtsbaum";
-  if(s.includes("sperrm")) return "Sperrmüll";
-  if(s.includes("wertstoff")) return "Wertstofftonne";
-  if(s.includes("papier")) return "Papiertonne";
-  if(s.includes("bio")) return "Biotonne";
-  if(s.includes("rest")) return "Restmüll";
+
+  // Restmüll: viele Synonyme
+  if (
+    s.includes("restmüll") || s.includes("restmuell") ||
+    s.includes("restabfall") || s.includes("hausmüll") || s.includes("hausmuell") ||
+    s.includes("grau") || s.includes("graue tonne") || s.includes("grauen tonne") ||
+    s.includes("schwarz") || s.includes("schwarze tonne") || s.includes("schwarzen tonne") ||
+    s.includes("rest-")
+  ) return "Restmüll";
+
+  // Bio
+  if (s.includes("bio") || s.includes("biotonne") || s.includes("bioabfall") || s.includes("grünabfall") || s.includes("gruenabfall"))
+    return "Biotonne";
+
+  // Wertstoff / Gelb
+  if (s.includes("wertstoff") || s.includes("gelbe tonne") || s.includes("gelben sack") || s.includes("lvp"))
+    return "Wertstofftonne";
+
+  // Papier / Blau
+  if (s.includes("papier") || s.includes("blaue tonne") || s.includes("altpapier"))
+    return "Papiertonne";
+
+  // Sonderabfuhren
+  if (s.includes("weihnachtsbaum")) return "Weihnachtsbaum";
+  if (s.includes("sperrm")) return "Sperrmüll";
+
+  // Fallback: lieber als Restmüll anzeigen als gar nichts
   return "Restmüll";
 }
+
 function fmt(d){
   return d.toLocaleDateString("de-DE",{weekday:"short",day:"2-digit",month:"2-digit",year:"numeric"});
 }
@@ -112,6 +138,7 @@ async function run(){
           <div>
             <div><strong>${title}</strong>${(type==='Weihnachtsbaum'||type==='Sperrmüll')?'<span class="badge">Sonderabfuhr</span>':''}</div>
             <div class="date">${fmt(ev.dt)}${isTomorrow?' (morgen)':''}${isToday?' (heute)':''}</div>
+            ${DEBUG ? `<div class="dbg">Typ: ${type} • SUMMARY: ${ev.summary}</div>` : ``}
           </div>
         </div>`;
     }).join("");
