@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>AWB Köln – Monatskalender Frohnhof</title>
+<style>
+  :root{--bg:#f9fafb;--fg:#111827;--muted:#6b7280;--border:#e5e7eb}
+  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;margin:1rem;background:var(--bg);color:var(--fg)}
+  h2{margin:.2rem 0 .4rem 0;font-size:1.2rem}
+  .sub{color:var(--muted);font-size:.85rem;margin-bottom:1rem}
+  .cal{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}
+  .dow{font-weight:600;font-size:.9rem;color:var(--muted);text-align:center;margin-bottom:.3rem}
+  .cell{background:#fff;border:1px solid var(--border);border-radius:10px;min-height:78px;padding:.5rem;display:flex;flex-direction:column;gap:.35rem}
+  .cell.out{opacity:.45}
+  .day{font-size:.9rem;font-weight:600}
+  .bars{display:flex;flex-direction:column;gap:4px}
+  .bar{height:6px;border-radius:6px}
+  .bar.split{display:grid;grid-template-columns:1fr 1fr;gap:4px;height:6px}
+  .today{outline:2px solid #111827;outline-offset:2px}
+  .blink{animation:blink 1s infinite alternate}
+  @keyframes blink{0%{opacity:1}100%{opacity:.35}}
+  .legend{margin-top:12px;display:flex;flex-wrap:wrap;gap:10px;font-size:.85rem;color:var(--muted)}
+  .dot{width:10px;height:10px;border-radius:2px;display:inline-block;margin-right:6px;vertical-align:middle}
+  .list{margin-top:16px}
+  .item{display:flex;align-items:center;gap:12px;margin:.4rem 0;padding:.55rem;border:1px solid var(--border);border-radius:10px;background:#fff}
+  .label{font-weight:600}
+  .muted{color:var(--muted);font-size:.85rem}
+</style>
+</head>
+<body>
+<h2>Abfuhrtermine (Monatskalender)</h2>
+<div class="sub" id="subtitle"></div>
+
+<div class="cal" id="header"></div>
+<div class="cal" id="grid"></div>
+
+<div class="legend" id="legend"></div>
+
+<h3 class="list">Nächste Abholung</h3>
+<div id="upcoming"></div>
+
+<div class="muted" style="margin-top:8px">Quelle: lokale Kopie <code>awb.ics</code></div>
+
+<script>
+const ICS_PATH = "./awb.ics"; // gleiche Origin
+
+// Farben + Anzeigenamen
+const COLORS={Restmüll:"#111827",Biotonne:"#92400e",Wertstofftonne:"#ca8a04",Papiertonne:"#1e40af",Weihnachtsbaum:"#065f46",Sperrmüll:"#7c3aed"};
+const LABELS={
+  Restmüll:{main:"Schwarze Tonne",sub:"Restmüll"},
+  Biotonne:{main:"Braune Tonne",sub:"Biotonne"},
+  Wertstofftonne:{main:"Gelbe Tonne",sub:"Wertstofftonne"},
+  Papiertonne:{main:"Blaue Tonne",sub:"Papier"},
+  Weihnachtsbaum:{main:"Weihnachtsbaum",sub:"Sonderabfuhr"},
+  Sperrmüll:{main:"Sperrmüll",sub:"Sonderabfuhr"}
+};
+const ORDER=["Restmüll","Biotonne","Wertstofftonne","Papiertonne","Sperrmüll","Weihnachtsbaum"];
+
+function setSubtitle(monthDate){
+  const fmt = new Intl.DateTimeFormat("de-DE",{month:"long",year:"numeric"}).format(monthDate);
+  document.getElementById("subtitle").textContent = fmt;
+}
+
+function unfoldICS(text){
+  const lines=text.replace(/\\r/g,"").split("\\n"); const out=[];
+  for(const l of lines){ if(l.startsWith(" ")||l.startsWith("\\t")) out[out.length-1]+=l.slice(1); else out.push(l); }
+  return out;
+}
+function parseEvents(text){
+  const lines=unfoldICS(text); const events=[]; let cur=null;
+  for(const L0 of lines){
+    const L=L0.trim();
+    if(L==="BEGIN:VEVENT"){cur={};continue;}
+    if(L==="END:VEVENT"){ if(cur&&cur.dt&&cur.summary) events.push(cur); cur=null; continue;}
+    if(!cur) continue;
+    if(L.startsWith("DTSTART")){
+      const m=L.match(/DTSTART(?:;[^:]+)?:([0-9]{8}(?:T[0-9]{6}Z?)?)/i);
+      if(m){ const v=m[1], y=v.slice(0,4), mo=v.slice(4,6), d=v.slice(6,8);
+        cur.dt=new Date(`${y}-${mo}-${d}T06:00:00`); }
+    } else if(L.startsWith("SUMMARY")){
+      cur.summary=L.split(":").slice(1).join(":").trim();
+    }
+  }
+  events.sort((a,b)=>a.dt-b.dt);
+  return events;
+}
+// Klassifizierung mit Synonymen
+function classify(summary){
+  const s=summary.toLowerCase();
+  if (s.includes("weihnachtsbaum")) return "Weihnachtsbaum";
+  if (s.includes("sperrm")) return "Sperrmüll";
+  if (s.includes("wertstoff") || s.includes("gelbe tonne") || s.includes("gelben sack") || s.includes("lvp")) return "Wertstofftonne";
+  if (s.includes("papier") || s.includes("blaue tonne") || s.includes("altpapier")) return "Papiertonne";
+  if (s.includes("bio") || s.includes("biotonne") || s.includes("bioabfall") || s.includes("grünabfall") || s.includes("gruenabfall")) return "Biotonne";
+  if (
+    s.includes("restmüll") || s.includes("restmuell") ||
+    s.includes("restabfall") || s.includes("hausmüll") || s.includes("hausmuell") ||
+    s.includes("grau") || s.includes("graue tonne") || s.includes("grauen tonne") ||
+    s.includes("schwarz") || s.includes("schwarze tonne") || s.includes("schwarzen tonne") ||
+    s.includes("rest-")
+  ) return "Restmüll";
+  return "Restmüll";
+}
+function ymd(d){ return d.toISOString().slice(0,10); }
+function fmtDate(d){ return d.toLocaleDateString("de-DE",{weekday:"short",day:"2-digit",month:"2-digit",year:"numeric"}); }
+function mondayIndex(d){ return (d.getDay()+6)%7; } // Mo=0,...So=6
+
+function buildHeader(){
+  const header=document.getElementById("header"); header.innerHTML="";
+  ["Mo","Di","Mi","Do","Fr","Sa","So"].forEach(txt=>{
+    const div=document.createElement("div"); div.className="dow"; div.textContent=txt; header.appendChild(div);
+  });
+}
+
+function buildCalendar(grouped){
+  const grid=document.getElementById("grid"); grid.innerHTML="";
+  const now=new Date();
+  const month=new Date(now.getFullYear(), now.getMonth(), 1);
+  setSubtitle(month);
+
+  const startOffset = mondayIndex(month);
+  const startGrid = new Date(month); startGrid.setDate(1 - startOffset);
+
+  const endOfMonth = new Date(now.getFullYear(), now.getMonth()+1, 0);
+  const endOffset = (6 - mondayIndex(endOfMonth)); // bis Sonntag auffüllen
+  const endGrid = new Date(endOfMonth); endGrid.setDate(endOfMonth.getDate() + endOffset);
+
+  const today=new Date(new Date().toDateString());
+  const tomorrow=new Date(today); tomorrow.setDate(today.getDate()+1);
+
+  for(let d=new Date(startGrid); d<=endGrid; d.setDate(d.getDate()+1)){
+    const k=ymd(d);
+    const types = grouped.get(k) || [];
+    const cell=document.createElement("div");
+    const outMonth = d.getMonth() !== month.getMonth();
+    cell.className = "cell"+(outMonth?" out":"")+(d.toDateString()===today.toDateString()?" today":"");
+    const day = document.createElement("div"); day.className="day"; day.textContent = d.getDate();
+    const bars = document.createElement("div"); bars.className="bars";
+
+    // Zeichne Balken
+    const ordered = ORDER.filter(t=>types.includes(t));
+    if(ordered.length===1){
+      const t=ordered[0]; const bar=document.createElement("div");
+      bar.className="bar"; bar.style.background=COLORS[t]||"#111827";
+      if (d.toDateString()===today.toDateString() || d.toDateString()===tomorrow.toDateString()) bar.classList.add("blink");
+      bar.title = LABELS[t]?.main+" · "+(LABELS[t]?.sub||"");
+      bars.appendChild(bar);
+    }else if(ordered.length>=2){
+      const t1=ordered[0], t2=ordered[1];
+      const wrap=document.createElement("div"); wrap.className="bar split";
+      const a=document.createElement("div"); a.style.background=COLORS[t1]||"#111827"; wrap.appendChild(a);
+      const b=document.createElement("div"); b.style.background=COLORS[t2]||"#111827"; wrap.appendChild(b);
+      if (d.toDateString()===today.toDateString() || d.toDateString()===tomorrow.toDateString()) wrap.classList.add("blink");
+      wrap.title = [t1,t2].map(t=> (LABELS[t]?.main+" · "+(LABELS[t]?.sub||"")) ).join("  |  ");
+      bars.appendChild(wrap);
+      if (ordered.length>2){
+        const more=document.createElement("div"); more.className="muted"; more.textContent="+ "+(ordered.length-2)+" weitere";
+        bars.appendChild(more);
+      }
+    }
+
+    cell.appendChild(day);
+    cell.appendChild(bars);
+    grid.appendChild(cell);
+  }
+}
+
+function buildLegend(){
+  const el=document.getElementById("legend"); el.innerHTML="";
+  ORDER.forEach(key=>{
+    const lab=LABELS[key];
+    const span=document.createElement("span");
+    span.innerHTML = `<span class="dot" style="background:${COLORS[key]}"></span>${lab.main} · ${lab.sub}`;
+    el.appendChild(span);
+  });
+}
+
+async function run(){
+  buildHeader();
+  buildLegend();
+
+  const res = await fetch(ICS_PATH+"?t="+Date.now(), {cache:"no-store"});
+  if(!res.ok){ document.getElementById("grid").innerHTML='<div class="muted">Fehler beim Laden</div>'; return; }
+  const txt = await res.text();
+  const all = parseEvents(txt);
+
+  // Gruppieren nach Datum (nur zukünftige/aktuelle)
+  const today=new Date(new Date().toDateString());
+  const grouped = new Map();
+  for(const ev of all){
+    if (ev.dt < today) continue;
+    const k=ymd(ev.dt);
+    const type=classify(ev.summary);
+    if(!grouped.has(k)) grouped.set(k, []);
+    if(!grouped.get(k).includes(type)) grouped.get(k).push(type);
+  }
+
+  buildCalendar(grouped);
+
+  // Upcoming (nächste 3 Termine)
+  const upcomingEl = document.getElementById("upcoming");
+  const upcomingDates = Array.from(grouped.keys()).sort().slice(0,3);
+  if(upcomingDates.length===0){
+    upcomingEl.innerHTML = '<div class="muted">Keine kommenden Termine.</div>';
+  }else{
+    upcomingEl.innerHTML = upcomingDates.map(k=>{
+      const d=new Date(k);
+      const types = ORDER.filter(t=>(grouped.get(k)||[]).includes(t));
+      const labels = types.map(t=>`${LABELS[t].main} · ${LABELS[t].sub}`).join(" | ");
+      return `<div class="item">
+                <div class="label">${fmtDate(d)}</div>
+                <div class="muted">${labels}</div>
+              </div>`;
+    }).join("");
+  }
+}
+run();
+</script>
+</body>
+</html>
