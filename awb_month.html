@@ -50,7 +50,7 @@
 <div class="muted" style="margin-top:8px">Quelle: lokale Kopie <code>awb.ics</code></div>
 
 <script>
-const ICS_PATH = "./awb.ics"; // ICS-Datei im selben Verzeichnis
+const ICS_PATH = "./awb.ics";
 
 const LABELS={
   Restmüll:{top:"Schwarze Tonne", sub:"Restmüll"},
@@ -72,15 +72,20 @@ function binSVG(color){
     </svg>`;
 }
 
+/* Monatsüberschrift */
 function setSubtitle(monthDate){
   const fmt = new Intl.DateTimeFormat("de-DE",{month:"long",year:"numeric"}).format(monthDate);
   document.getElementById("subtitle").textContent = fmt;
 }
+
+/* ICS einzeilig machen (Fortsetzungszeilen anfügen) */
 function unfoldICS(text){
   const lines=text.replace(/\r/g,"").split("\n"); const out=[];
   for(const l of lines){ if(l.startsWith(" ")||l.startsWith("\t")) out[out.length-1]+=l.slice(1); else out.push(l); }
   return out;
 }
+
+/* ICS -> Events (ganztägig, lokal, ohne UTC) */
 function parseEvents(text){
   const lines=unfoldICS(text); const events=[]; let cur=null;
   for(const L0 of lines){
@@ -90,8 +95,9 @@ function parseEvents(text){
     if(!cur) continue;
     if(L.startsWith("DTSTART")){
       const m=L.match(/DTSTART(?:;[^:]+)?:([0-9]{8})(?:T[0-9]{6}Z?)?/i);
-      if(m){ const v=m[1], y=v.slice(0,4), mo=v.slice(4,6), d=v.slice(6,8);
-        cur.dt=new Date(`${y}-${mo}-${d}T06:00:00`);
+      if(m){
+        const v=m[1], y=Number(v.slice(0,4)), mo=Number(v.slice(4,6)), d=Number(v.slice(6,8));
+        cur.dt=new Date(y, mo-1, d); // << lokal, 00:00
       }
     } else if(L.startsWith("SUMMARY")){
       cur.summary=L.split(":").slice(1).join(":").trim();
@@ -101,6 +107,7 @@ function parseEvents(text){
   return events;
 }
 
+/* robuste Typ-Erkennung */
 function detectTypes(summary){
   const s = " "+summary.toLowerCase().replace(/\s+/g," ")+" ";
   const found = new Set();
@@ -132,7 +139,13 @@ function detectTypes(summary){
   return Array.from(found);
 }
 
-function ymd(d){ return d.toISOString().slice(0,10); }
+/* Lokales YYYY-MM-DD ohne UTC */
+function ymd(d){
+  const y=d.getFullYear();
+  const m=String(d.getMonth()+1).padStart(2,"0");
+  const da=String(d.getDate()).padStart(2,"0");
+  return `${y}-${m}-${da}`;
+}
 function fmtDate(d){ return d.toLocaleDateString("de-DE",{weekday:"short",day:"2-digit",month:"2-digit",year:"numeric"}); }
 function mondayIndex(d){ return (d.getDay()+6)%7; }
 
